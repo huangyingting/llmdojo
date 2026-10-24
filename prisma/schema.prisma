@@ -1,0 +1,99 @@
+// Local development schema (SQLite)
+// Production uses prisma/schema.postgres.prisma automatically via prisma.config.ts
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id                  String          @id @default(cuid())
+  email               String          @unique
+  name                String?
+  passwordHash        String
+  role                String          @default("USER") // "USER" | "INSTRUCTOR" | "ADMIN"
+  status              String          @default("ACTIVE") // "ACTIVE" | "REVOKED"
+  revokedAt           DateTime?
+  revokedReason       String?
+  sessionVersion      Int             @default(1)
+  invitedByInvitation InvitationCode? @relation("RedeemedInvitation")
+  createdInvitations  InvitationCode[] @relation("CreatedInvitations")
+  learningState       UserLearningState?
+  topicFeedbacks      TopicFeedbackEntry[]
+  auditLogsAsActor    AuditLog[]      @relation("AuditActor")
+  auditLogsAsTarget   AuditLog[]      @relation("AuditTarget")
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@index([role, status])
+}
+
+model InvitationCode {
+  id           String    @id @default(cuid())
+  codePrefix   String
+  tokenHash    String    @unique
+  email        String?
+  assignedRole String    @default("USER") // "USER" | "INSTRUCTOR" | "ADMIN"
+  status       String    @default("PENDING") // "PENDING" | "REDEEMED" | "REVOKED" | "EXPIRED"
+  maxUses      Int       @default(1)
+  useCount     Int       @default(0)
+  note         String?
+  expiresAt    DateTime
+  redeemedAt   DateTime?
+  revokedAt    DateTime?
+  createdById  String
+  createdBy    User      @relation("CreatedInvitations", fields: [createdById], references: [id], onDelete: Cascade)
+  redeemedById String?   @unique
+  redeemedBy   User?     @relation("RedeemedInvitation", fields: [redeemedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status, expiresAt])
+  @@index([email])
+}
+
+model UserLearningState {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  progressJson        String   @default("{}") // Map of topicPath -> completedTimestampMs
+  reviewCardsJson     String   @default("{}") // Map of cardKey -> {ease, interval, due, reps, lapses, last}
+  interviewStatusJson String   @default("{}") // Map of questionSlug -> "got-it" | "review"
+  lastLessonJson      String   @default("null") // {path, title, module, timestamp}
+  playgroundStateJson String   @default("{}") // Saved playground hyperparameters
+  updatedAt           DateTime @updatedAt
+}
+
+model TopicFeedbackEntry {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  topicPath String
+  helpful   Boolean
+  message   String?
+  createdAt DateTime @default(now())
+
+  @@index([topicPath, createdAt])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  action       String
+  actorId      String?
+  actor        User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  actorEmail   String?
+  targetUserId String?
+  targetUser   User?    @relation("AuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  targetId     String?
+  ipAddress    String?
+  userAgent    String?
+  metadataJson String   @default("{}")
+  createdAt    DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([actorId, createdAt])
+  @@index([targetUserId, createdAt])
+}
